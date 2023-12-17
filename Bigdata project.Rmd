@@ -1,0 +1,367 @@
+---
+title: "Big Data Project"
+author: "B179979"
+date: "2023-12-1"
+output: html_document
+---
+
+```{r}
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(stringr)
+library(kableExtra)
+library(htmltools)
+library(topicmodels)
+library(tm)
+library(SnowballC)
+library(tidytext)
+library(tidyr)
+library(e1071)
+library(caret)
+library(quanteda)
+library(caTools)
+library(gmodels)
+
+```
+
+```{r}
+#create Moral Foundations Dictionary#
+MFD <- list(
+  Harm = c("safe" , "peace" , "compassion" , "empath" , "sympath" , "care", "caring", "protect" , "shield", "shelter", "amity", "secur" , "benefit" , "defen" , "guard", "preserve", "harm", "suffer", "war", "wars", "warl", "warring", "fight", "violen", "hurt", "kill", "endanger" , "cruel" , "brutal" , "abuse" , "damag", "ruin", "ravage", "detriment", "crush", "attack", "annihilate", "destroy", "stomp", "abandon", "spurn", "impair", "exploit", "wound"
+  ),
+  Fairness= c("fair", "equal" , "justice", "justness", "justifi" , "reciproc" , "impartial" , "egalitar" , "rights", "equity", "evenness", "equivalent",   "tolerant", "equable", "balance", "homologous", "reasonable", "constant", "honest", "bias" , "unjust", "injust", "bigot", "discriminat", "disproportion", "inequitable", "prejud", "unscrupulous", "dissociate", "preference", "favoritism", "segregat", "exclusion", "exclud"),
+  Ingroup= c("together", "nation", "homeland", "family", "families", "familial", "group", "loyal", "patriot", "communal", "commune", "communit", "communis", "comrad", "cadre", "collectiv", "joint", "unison", "unite" , "fellow", "guild", "solidarity", "devot", "member", "cliqu" , "cohort", "ally", "insider", "foreign", "enem", "betray", "treason", "traitor", "treacher", "disloyal", "individual", "apostasy", "apostate", "deserted", "deserter", "deserting", "deceiv" , "jilt", "imposter", "miscreant", "spy", "sequester", "renegade", "terroris", "immigra"),
+  Authority= c("obey", "obedien", "duty", "law", "legal", "duti", "honor", "respect", "order", "father", "mother", "tradition", "hierarc", "authorit", "permit", "permission", "status", "rank", "leader", "class", "bourgeoisie", "caste", "position", "complian", "command", "supremacy", "control", "submi", "allegian", "serve", "abide", "defer", "revere", "venerat", "comply", "defian", "rebel", "dissent", "subver", "disrespect", "disobe", "sediti", "agitat", "insubordinat", "illegal", "lawless", "insurgent", "mutinous", "defy", "dissident", "unfaithful", "alienate", "defector", "heretic", "nonconformist", "oppose", "protest", "refuse", "denounce", "remonstrate", "riot", "obstruct"),
+  Purity= c("piety", "pious", "purity", "pure", "clean", "steril", "sacred", "chast", "holy", "holiness", "saint", "wholesome", "celiba", "abstention", "virgin", "austerity", "integrity", "modesty", "abstinen", "abstemiousness", "upright", "limpid", "unadulterated", "maiden", "virtuous", "refined", "intemperate", "decen", "immaculate", "innocent", "pristine", "humble", "disgust", "deprav", "disease", "unclean", "contagio", "indecen", "sin", "slut", "whore", "dirt", "impiety", "impious", "profan", "gross", "repuls", "sick", "promiscu", "lewd", "adulter", "debauche", "defile", "tramp", "prostitut", "unchaste", "wanton", "profligate", "filth", "trashy", "obscen", "lax", "taint", "stain", "tarnish", "debase" , "desecrat", "wicked", "blemish", "exploitat", "pervert", "wretched")
+)
+```
+
+```{r}
+Twitterdata<- read_csv("https://drive.google.com/uc?export=download&id=1WS4rABjcWi7tNQ_hrXHUEpdj-0QRXeRN") #If this doesn't work, please download the file on Github#
+Twitterdata<- Twitterdata %>% 
+  select(-c(created_at,url, bioguide_id,state))
+Twitterdata<- Twitterdata %>%
+  mutate(party = ifelse(party == "D", "Democrat", ifelse(party == "R", "Republican", party)))
+Twitterdata<- Twitterdata %>%
+  filter(party != "I")
+
+moral_words <- unlist(MFD)
+moral_pattern <- paste(moral_words, collapse = "|")
+Moraltweets<- Twitterdata %>%
+  filter(str_detect(text, regex(moral_pattern, ignore_case = TRUE)))
+
+Tweets_table<-
+  Moraltweets%>%
+  group_by(party) %>%
+  summarise(
+    Harm = round(sum(str_detect(text, paste("(?i)",MFD$Harm, collapse = "|"))) / n() * 100,2),
+    Fairness = round(sum(str_detect(text, paste("(?i)",MFD$Fairness, collapse = "|"))) / n() * 100,2),
+    Ingroup = round(sum(str_detect(text, paste("(?i)",MFD$Ingroup, collapse = "|"))) / n() * 100,2),
+    Authority = round(sum(str_detect(text, paste("(?i)",MFD$Authority, collapse = "|"))) / n() * 100,2),
+    Purity = round(sum(str_detect(text, paste("(?i)",MFD$Purity, collapse = "|"))) / n() * 100,2)
+    ) %>%
+  pivot_longer(cols = c(Harm, Fairness, Ingroup, Authority, Purity), names_to = "concept", values_to = "frequency") %>%
+  complete(party, concept, fill = list(frequency = 0))
+
+T_showed_table<- kable(Tweets_table, format = "html", escape = FALSE) %>%
+  kable_styling("striped", full_width = FALSE, bootstrap_options = c("striped", "bordered"))
+T_showed_table
+
+T_bar_plot<-
+  ggplot(data = Tweets_table, aes(x = party, y = frequency, fill = concept)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Concept's frequency in different parties on Twitter",
+       x = "Party",
+       y = "Frequency") +
+  scale_fill_discrete(name = "Concepts") +
+  theme_minimal()
+T_bar_plot
+```
+
+```{r}
+Redditdata<- read_csv("https://drive.google.com/uc?export=download&id=1cCMlAj7ZvwaLhOMSdtVfuy1_K4SidA6E") #If this doesn't work, please download the file on Github#
+Redditdata<- Redditdata %>%
+  mutate(Subreddit = ifelse(Subreddit == "democrats", "Democrat", Subreddit))
+
+Moralreddit<- Redditdata %>%
+  filter(str_detect(Body, regex(moral_pattern, ignore_case = TRUE)))
+
+Reddit_table<-  
+  Moralreddit%>%
+  group_by(Subreddit) %>%
+  summarise(
+    Harm = round(sum(str_detect(Body, paste("(?i)",MFD$Harm, collapse = "|"))) / n() * 100,2),
+    Fairness = round(sum(str_detect(Body, paste("(?i)",MFD$Fairness, collapse = "|"))) / n() * 100,2),
+    Ingroup = round(sum(str_detect(Body, paste("(?i)",MFD$Ingroup, collapse = "|"))) / n() * 100,2),
+    Authority = round(sum(str_detect(Body, paste("(?i)",MFD$Authority, collapse = "|"))) / n() * 100,2),
+    Purity = round(sum(str_detect(Body, paste("(?i)",MFD$Purity, collapse = "|"))) / n() * 100,2)
+    ) %>%
+  pivot_longer(cols = c(Harm, Fairness, Ingroup, Authority, Purity), names_to = "concept", values_to = "frequency") %>%
+  complete(Subreddit, concept, fill = list(frequency = 0))
+
+R_showed_table<- kable(Reddit_table, format = "html", escape = FALSE) %>%
+  kable_styling("striped", full_width = FALSE, bootstrap_options = c("striped", "bordered"))
+R_showed_table
+
+R_bar_plot<-
+  ggplot(data = Reddit_table, aes(x = Subreddit, y = frequency, fill = concept)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Concept's frequency in different parties on Reddit",
+       x = "Party",
+       y = "Frequency") +
+  scale_fill_discrete(name = "Concepts") +
+  theme_minimal()
+R_bar_plot
+```
+
+```{r}
+concept_list <- c("Harm", "Fairness", "Ingroup", "Authority", "Purity")
+
+popular1 <- concept_list %>%
+  map_df(~ {
+    concept <- .x
+    Moraltweets%>%
+      mutate(has_concept = str_detect(text, regex(paste("(?i)", MFD[[concept]], collapse = "|"), ignore_case = TRUE))) %>%
+      group_by(has_concept, party) %>%
+      summarise(
+        favorites = round(mean(favorites),1)
+      ) %>%
+      mutate(favorites= favorites)%>%
+      ungroup() %>%
+      mutate(Concept = concept)
+  })
+popular1 <- popular1 %>%
+  filter(has_concept == TRUE) %>%
+  select(-has_concept)
+
+
+t_popular <-kable(popular1, format = "html", escape = FALSE) %>%
+  kable_styling("striped", full_width = FALSE, bootstrap_options = c("striped", "bordered"))
+t_popular
+
+T_popular_bar<- 
+  ggplot(data = popular1, aes(x = party, y = favorites, fill = Concept)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Popularities of different concepts on Twitter",
+       x = "Party",
+       y = "Popularity") +
+  scale_fill_discrete(name = "Concepts") +
+  theme_minimal()
+T_popular_bar
+```
+```{r}
+popular2 <- concept_list %>%
+  map_df(~ {
+    concept <- .x
+    Moralreddit%>%
+      mutate(has_concept = str_detect(Body, regex(paste("(?i)", MFD[[concept]], collapse = "|"), ignore_case = TRUE))) %>%
+      group_by(has_concept, Subreddit) %>%
+      summarise(
+        favorites = round(mean(Ups),1)
+      ) %>%
+      ungroup() %>%
+      mutate(Concept = concept)
+  })
+popular2 <- popular2 %>%
+  filter(has_concept == TRUE) %>%
+  select(-has_concept)
+
+r_popular <-kable(popular2, format = "html", escape = FALSE) %>%
+  kable_styling("striped", full_width = FALSE, bootstrap_options = c("striped", "bordered"))
+r_popular
+
+R_popular_bar<- 
+  ggplot(data = popular2, aes(x = Subreddit, y = favorites, fill = Concept)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Popularities of different concepts on Reddit",
+       x = "Party",
+       y = "Popularity") +
+  scale_fill_discrete(name = "Concepts") +
+  theme_minimal()
+R_popular_bar
+```
+
+```{r}
+T_lda_data<-Twitterdata[,c("party","text","user")]
+T_lda_data$text <- iconv(T_lda_data$text, to = "UTF-8")
+
+corpus <- Corpus(VectorSource(T_lda_data$text))
+corpus <- tm_map(corpus, content_transformer(tolower))
+corpus <- tm_map(corpus, removePunctuation)
+corpus <- tm_map(corpus, removeNumbers)
+corpus <- tm_map(corpus, removeWords, stopwords("english"))
+corpus <- tm_map(corpus, stripWhitespace)
+corpus <- corpus[sapply(corpus, function(x) length(unlist(strsplit(as.character(x), " "))) > 0)]
+
+dtm <- DocumentTermMatrix(corpus)
+dtm <- removeSparseTerms(dtm, 0.99)
+dtm <- dtm[rowSums(as.matrix(dtm)) > 0, ]
+
+T_lda<- LDA(dtm, k = 2,control=list(seed=300))
+T_lda
+T_topics<- tidy(T_lda, matrix="beta")
+
+T_top_terms<- T_topics%>%
+  group_by(topic)%>%
+  top_n(10,beta)%>%
+  ungroup()%>%
+  arrange(topic,-beta)
+T_top_terms%>%
+  mutate(term = reorder(term, beta))%>%
+  ggplot(aes(term,beta,fill=factor(topic)))+
+  geom_col(show.legend = FALSE)+
+  facet_wrap(~topic, scales="free")+
+  coord_flip()
+```
+
+```{r}
+beta_spread <- T_topics %>%
+  mutate(topic = paste0("topic", topic))%>%
+  spread(topic, beta) %>%
+  filter(topic1 > .002 | topic2 >.002)%>%
+  mutate(log_ratio = log2(topic2/topic1))
+
+beta_spread%>%
+  mutate(term = reorder(term, log_ratio))%>%
+  ggplot(aes(x=term, y = log_ratio))+
+  geom_col(show.legend = FALSE)+
+  coord_flip()+
+  theme_bw(10)
+```
+
+```{r}
+tweets_df <- Twitterdata %>%
+  select(party = party, text = text)
+tweets_df$party <- as.factor(tweets_df$party)
+tweets_df$text <- iconv(tweets_df$text, to = "UTF-8")
+tweets_corpus <- Corpus(VectorSource(tweets_df$text))
+tweets_corpus_clean <- tm_map(tweets_corpus, content_transformer(tolower))
+tweets_corpus_clean <- tm_map(tweets_corpus_clean, removeWords, stopwords("en"))
+tweets_corpus_clean <- tm_map(tweets_corpus_clean, removePunctuation)
+tweets_corpus_clean <- tm_map(tweets_corpus_clean, stripWhitespace)
+
+tweets_df$text_clean <- sapply(tweets_corpus_clean, as.character)
+
+dtm_t <- DocumentTermMatrix(tweets_corpus_clean)
+set.seed(500)
+sample <- sample.split(tweets_df$party, SplitRatio = 0.8)
+train_df <- subset(tweets_df, sample == TRUE)
+test_df <- subset(tweets_df, sample == FALSE)
+
+train_corpus <- Corpus(VectorSource(train_df$text))
+test_corpus <- Corpus(VectorSource(test_df$text))
+
+train_dtm <- DocumentTermMatrix(Corpus(VectorSource(train_df$text_clean)))
+train_dtm <- removeSparseTerms(train_dtm, 0.99)
+test_dtm <- DocumentTermMatrix(Corpus(VectorSource(test_df$text_clean)))
+test_dtm <- removeSparseTerms(test_dtm, 0.99)
+
+convert_bin <- function(x) { as.factor(x > 0) }
+train_matrix <- apply(as.matrix(train_dtm), MARGIN = 2, convert_bin)
+test_matrix <- apply(as.matrix(test_dtm), MARGIN = 2, convert_bin)
+
+classifier <- naiveBayes(x = train_matrix, y = train_df$party)
+
+t_prediction <- predict(classifier, test_matrix)
+CrossTable(t_prediction, test_df$party,
+  prop.chisq = FALSE, prop.t = FALSE,
+  dnn = c('predicted', 'actual')) 
+```
+
+```{r}
+R_lda_data<-Redditdata[,c("ID","Subreddit","Body")]
+R_lda_data$Body <- iconv(R_lda_data$Body, to = "UTF-8")
+
+corpus2 <- Corpus(VectorSource(R_lda_data$Body))
+corpus2 <- tm_map(corpus2, content_transformer(tolower))
+corpus2 <- tm_map(corpus2, removePunctuation)
+corpus2 <- tm_map(corpus2, removeNumbers)
+corpus2 <- tm_map(corpus2, removeWords, stopwords("english"))
+corpus2 <- tm_map(corpus2, stripWhitespace)
+
+dtm2 <- DocumentTermMatrix(corpus2)
+dtm2 <- removeSparseTerms(dtm2, 0.99)
+dtm2 <- dtm2[rowSums(as.matrix(dtm2)) > 0, ]
+
+```
+
+```{r}
+R_lda<- LDA(dtm2, k = 2,control=list(seed=300))
+R_lda
+R_topics<- tidy(R_lda, matrix="beta")
+R_topics
+
+
+R_top_terms<- R_topics%>%
+  group_by(topic)%>%
+  top_n(10,beta)%>%
+  ungroup()%>%
+  arrange(topic,-beta)
+R_top_terms%>%
+  mutate(term = reorder(term, beta))%>%
+  ggplot(aes(term,beta,fill=factor(topic)))+
+  geom_col(show.legend = FALSE)+
+  facet_wrap(~topic, scales="free")+
+  coord_flip()
+```
+
+```{r}
+beta_spread2 <- R_topics %>%
+  mutate(topic = paste0("topic", topic))%>%
+  spread(topic, beta) %>%
+  filter(topic1 > .002 | topic2 >.002)%>%
+  mutate(log_ratio = log2(topic2/topic1))
+
+sorted_data <- beta_spread2 %>%
+  arrange(log_ratio) %>%
+  slice(c(1:20, (n()-19):n()))
+
+ggplot(sorted_data, aes(x=reorder(term, log_ratio), y=log_ratio)) +
+  geom_col(show.legend = FALSE) +
+  coord_flip() +
+  theme_bw(base_size = 10)
+```
+
+```{r}
+Reddit_df <- Redditdata %>%
+  select( Body = Body,Subreddit = Subreddit)
+Reddit_df$Subreddit <- as.factor(Reddit_df$Subreddit)
+Reddit_df$Body <- iconv(Reddit_df$Body, to = "UTF-8")
+Reddit_corpus <- Corpus(VectorSource(Reddit_df$Body))
+Reddit_corpus_clean <- tm_map(Reddit_corpus, content_transformer(tolower))
+Reddit_corpus_clean <- tm_map(Reddit_corpus_clean, removeWords, stopwords("en"))
+Reddit_corpus_clean <- tm_map(Reddit_corpus_clean, removePunctuation)
+Reddit_corpus_clean <- tm_map(Reddit_corpus_clean, stripWhitespace)
+
+Reddit_df$Body_clean <- sapply(Reddit_corpus_clean, as.character)
+
+dtm_R <- DocumentTermMatrix(Reddit_corpus_clean)
+set.seed(500)
+sample2 <- sample.split(Reddit_df$Subreddit, SplitRatio = 0.8)
+train_df2 <- subset(Reddit_df, sample2 == TRUE)
+test_df2 <- subset(Reddit_df, sample2 == FALSE)
+
+train_corpus2 <- Corpus(VectorSource(train_df2$Body))
+test_corpus2 <- Corpus(VectorSource(test_df2$Body))
+
+train_dtmR <- DocumentTermMatrix(Corpus(VectorSource(train_df2$Body_clean)))
+train_dtmR <- removeSparseTerms(train_dtmR, 0.99)
+test_dtmR <- DocumentTermMatrix(Corpus(VectorSource(test_df2$Body_clean)))
+test_dtmR <- removeSparseTerms(test_dtmR, 0.99)
+
+convert_bin2 <- function(x) { as.factor(x > 0) }
+train_matrix2 <- apply(as.matrix(train_dtmR), MARGIN = 2, convert_bin2)
+test_matrix2 <- apply(as.matrix(test_dtmR), MARGIN = 2, convert_bin2)
+
+classifierR <- naiveBayes(x = train_matrix2, y = train_df2$Subreddit)
+
+R_prediction <- predict(classifierR, test_matrix2)
+CrossTable(R_prediction, test_df2$Subreddit,
+  prop.chisq = FALSE, prop.t = FALSE,
+  dnn = c('predicted', 'actual'))
+
+
+```
+
